@@ -384,7 +384,7 @@ sub validate_value ( $state, $type, $val ) {
     $type = lc($type);
     given ($type) {
         when ('action') {
-            if ( $val !~ m/^(pass|drop|reject)$/ ) {
+            if ( $val !~ m/^(pass|drop|reject|needtunnel)$/ ) {
                 die_line( $state, "$val is not a valid action" );
             }
         }
@@ -417,6 +417,16 @@ sub validate_value ( $state, $type, $val ) {
                 }
             } elsif ( $val !~ m/^$RE{net}{IPv4}$/ ) {
                 die_line( $state, "$val is not a valid ip address" );
+            }
+        }
+        when ('iplist') {
+            if ( $val =~ m/^<(.*)>$/ ) {
+                my $tname = $val =~ m/^<(.*)>$/;
+                if ( !defined( $state->{list}{net} ) ) {
+                    die_line( $state, "$val is not a proper table name" );
+                }
+            } else {
+                die_line( $state, "$val is not a valid ip list name" );
             }
         }
         when ('natip') {
@@ -687,6 +697,9 @@ sub output_iptables_rule_gen ( $state, $ctype, $element ) {
                 $rule .= ' -j DROP';
             } elsif ( $element->{$key} eq 'reject' ) {
                 $rule .= ' -j fwbuild_reject';
+            } elsif ( $element->{$key} eq 'needtunnel' ) {
+                if ($ctype eq 'nat') { die "NAT cannot have needtunnel" }
+                $rule .= " -m policy --pol none --dir $ctype -j REJECT --reject-with icmp-admin-prohibited"
             } else {
                 die( "Unhandled action: " . $element->{$key} );
             }
