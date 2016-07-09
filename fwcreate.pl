@@ -449,7 +449,7 @@ sub validate_value ( $state, $type, $val ) {
             }
         }
         when ('proto') {
-            if ( $val !~ m/^(icmp|tcp|udp)$/i ) {
+            if ( $val !~ m/^(icmp|tcp|udp|(\d+))$/i ) {
                 die_line( $state, "$val is not a valid protocol" );
             }
         }
