@@ -1,0 +1,6 @@
+#
+# Default Deny
+#
+
+in action droplog
+

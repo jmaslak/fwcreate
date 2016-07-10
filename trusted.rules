@@ -1,0 +1,6 @@
+#
+# Trusted networks
+#
+
+in if_in <trusted> action pass
+

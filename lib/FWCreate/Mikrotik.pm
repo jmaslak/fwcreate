@@ -5,9 +5,11 @@
 # All Rights Reserved - See License
 #
 
-package FWCreate::IPTables v0.01.00;
+package FWCreate::Mikrotik v0.01.00;
 
 use JCM::Boilerplate 'class';
+
+my $MAXPORTS = 15;    # Max ports in a Mikrotik rule port list
 
 has rules => (
     is       => 'rw',
@@ -63,18 +65,13 @@ has dnat => (
     init_arg => undef,
 );
 
-sub output($self) {
+sub output ( $self, $fh = \*STDOUT ) {
 
-    say "#!/bin/bash";
-    say "# Programmatically generated! DO NOT EDIT BY HAND!";
-    say "";
-    say 'IPSET=$(which ipset)';
-    say 'if [ $IPSET == "" ] ; then';
-    say '    echo "Could not find ipset...bailing" >&2';
-    say '    exit 1';
-    say 'fi';
+    say $fh "# Programmatically generated! DO NOT EDIT BY HAND!";
+    say $fh "# Mikrotik Router Configuration Script";
+    say $fh "";
 
-    $self->output_lists();
+    $self->output_lists($fh);
 
     for my $ctype ( 'mangle', 'nat', 'in', 'out' ) {
         $self->output_rules($ctype);
@@ -90,54 +87,36 @@ sub output($self) {
     }
 
     # Do the actual output here
-    say 'iptables-restore <<_IPTABLES_RESTORE_';
-    $self->output_print();
-    say "_IPTABLES_RESTORE_";
+    $self->output_print($fh);
 }
 
-sub output_lists($self) {
+sub output_lists ( $self, $fh ) {
 
-    $self->output_lists_net();
-    $self->output_lists_port();
+    $self->output_lists_net($fh);
+    $self->output_lists_port($fh);
 
 }
 
-sub output_lists_net($self) {
+sub output_lists_net ( $self, $fh ) {
     foreach my $nm ( sort keys $self->rules->{list}{net}->%* ) {
-        $self->output_list_net($nm);
+        $self->output_list_net( $nm, $fh );
     }
 }
 
-sub output_list_net ( $self, $nm ) {
+sub output_list_net ( $self, $nm, $fh ) {
     my $key = $nm;
     my $set = "NET_$nm";
 
-    say "ipset create $set hash:net -exist";
-    say "ipset flush $set";
+    say $fh "/ip firewall address-list remove ", "[ /ip firewall address-list find list=$set ]";
 
     my $list = $self->rules->{list}{net}->{$key};
     foreach my $net ( $list->@* ) {
-        say "ipset add $set $net";
+        say $fh "/ip firewall address-list add list=$set address=$net";
     }
 }
 
-sub output_lists_port($self) {
-    foreach my $nm ( sort keys $self->rules->{list}{port}->%* ) {
-        $self->output_list_port($nm);
-    }
-}
-
-sub output_list_port ( $self, $nm ) {
-    my $key = $nm;
-    my $set = "PORT_$nm";
-
-    say "ipset create $set bitmap:port range 0-65535 -exist";
-    say "ipset flush $set";
-
-    my $list = $self->rules->{list}{port}->{$key};
-    foreach my $net ( $list->@* ) {
-        say "ipset add $set $net";
-    }
+sub output_lists_port ( $self, $fh ) {
+    # We don't do anything - Mikrotik doesn't have port lists like ipset
 }
 
 sub output_rules ( $self, $ctype ) {
@@ -147,6 +126,8 @@ sub output_rules ( $self, $ctype ) {
 }
 
 sub output_rule_gen ( $self, $ctype, $element ) {
+    state $warned_needtunnel = undef;
+
     my $chain;
     if ( $ctype eq 'in' ) {
         $chain = $self->in;
@@ -189,7 +170,7 @@ sub output_rule_gen ( $self, $ctype, $element ) {
                        # This lets us validate we saw
                        # everything.
 
-    my ( @in_interfaces, @out_interfaces );
+    my ( @in_interfaces, @out_interfaces, @src_ports, @dst_ports );
     foreach my $sorted ( sort keys %keytype ) {
         my $key = $sorted;
         $key =~ s/^\d\d\d_//;
@@ -210,23 +191,42 @@ sub output_rule_gen ( $self, $ctype, $element ) {
                 my ($set) = $element->{$key} =~ m/^<(.*)>$/;
                 push @in_interfaces, $self->rules->{list}{iface}{$set}->@*;
             } else {
-                $rule .= ' -i ' . $element->{$key};
+                $rule .= ' in-interface=' . $element->{$key};
             }
         } elsif ( $key eq 'if_out' ) {
             if ( $element->{$key} =~ m/^<.*>$/ ) {
                 my ($set) = $element->{$key} =~ m/^<(.*)>$/;
                 push @out_interfaces, $self->rules->{list}{iface}{$set}->@*;
             } else {
-                $rule .= ' -o ' . $element->{$key};
+                $rule .= ' out-interface=' . $element->{$key};
             }
         } elsif ( $keytype{$sorted} eq 'port' ) {
             if ( $element->{$key} =~ m/^<.*>$/ ) {
+                # It is a port list
                 my ($set) = $element->{$key} =~ m/^<(.*)>$/;
-                my $dir = $key eq 'sport' ? 'src' : 'dst';
-                $rule .= " -m set --match-set PORT_$set $dir";
+                my $setlist = $self->rules->{list}{port}{$set};
+
+                if ( @$setlist == 0 ) {
+                    next;    # We don't add a rule
+                } elsif ( @$setlist <= $MAXPORTS ) {
+                    # Microtik lets us have a list <= $MAXPORTS long
+                    my $type = $key eq 'sport' ? 'src-port' : 'dst-port';
+                    $rule .= " $type=" . join( ',', @$setlist ) . " ";
+                } elsif ( $key eq 'sport' ) {
+                    # We have > $MAXPORTS
+                    push @src_ports, $self->rules->{list}{port}{$set}->@*;
+                } elsif ( $key eq 'dport' ) {
+                    # We have > $MAXPORTS
+                    push @dst_ports, $self->rules->{list}{port}{$set}->@*;
+                } else {
+                    # Something is really wrong here...
+                    die("Unknown port type: $key");
+                }
+
             } else {
-                my $type = $key eq 'sport' ? 'sport' : 'dport';
-                $rule .= " --$type " . $element->{$key} . " ";
+                # It's not a port list
+                my $type = $key eq 'sport' ? 'src-port' : 'dst-port';
+                $rule .= " $type=" . $element->{$key} . " ";
             }
         } elsif ( $keytype{$sorted} eq 'ip' ) {
             my $ele = $element->{$key};
@@ -234,53 +234,71 @@ sub output_rule_gen ( $self, $ctype, $element ) {
             my $neg = $ele =~ m/^!/;
             $ele =~ s/^!//;
             my $opt = $neg ? '! ' : '';
+            my $field =
+                $key eq 'src' ? 'src-address' : 'dst-address';
 
             if ( $ele =~ m/^<.*>$/ ) {
                 my ($set) = $ele =~ m/^<(.*)>$/;
-                my $dir = $key;
-                $rule .= " -m set $opt --match-set NET_$set $dir";
+                $field .= '-list';
+                $rule .= " $field=${opt}NET_$set";
             } else {
-                my $dir = $key;
-                $rule .= " $opt --$dir $ele";
+                $rule .= " $field=${opt}$ele";
             }
         } elsif ( $key eq 'max_mss' ) {
-            $rule .= " -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss "
-              . $element->{$key};
+            my $biggermss = $element->{$key} + 1;
+            if ($biggermss > 65535) {
+                die("MSS specified as too big ($biggermss)");
+            }
+
+            my $mss = $element->{$key};
+            $rule .= " tcp-mss=$biggermss-65535 new-mss=$mss tcp-flags=syn";
+            $rule .= " action=change-mss";
         } elsif ( $key eq 'snat' ) {
             if ( $element->{$key} eq 'none' ) {
-                $rule .= " -j ACCEPT";
+                $rule .= " action=accept";  # Is this right?
             } elsif ( $element->{$key} eq 'masquerade' ) {
-                $rule .= " -j MASQUERADE";
+                $rule .= " action=masquerade";
             } else {
-                $rule .= " -j SNAT --to-source " . $element->{$key};
+                my ($addr, $port) = split /:/, $element->{$key};
+                $rule .= " action=src-nat to-address=$addr";
+                if (defined($port)) {
+                    $rule .= " to-port=$port";
+                }
             }
         } elsif ( $key eq 'dnat' ) {
             if ( $element->{$key} eq 'none' ) {
-                $rule .= " -j ACCEPT";
+                $rule .= " action=accept";
             } else {
-                $rule .= " -j DNAT --to-destination " . $element->{$key};
+                my ($addr, $port) = $element->{$key} =~ m/^([\d\.]+)(?::(\d+))?$/;
+                $rule .= " action=dst-nat to-address=$addr";
+                if (defined($port)) {
+                    $rule .= " to-port=$port";
+                }
             }
         } elsif ( $key eq 'proto' ) {
-            $rule .= " --proto " . $element->{$key};
-            if ( $element->{$key} =~ m/^(tcp|udp)$/ ) {
-                $rule .= " -m " . $element->{$key};
-            }
+            $rule .= " protocol=" . $element->{$key};
         } elsif ( $key eq 'action' ) {
             if ( $element->{$key} eq 'pass' ) {
-                $rule .= ' -j RETURN';    # A return is considered an okay
-                                          # response
+                $rule .= ' action=accept';    # A return is considered an okay
+                                              # response
             } elsif ( $element->{$key} eq 'drop' ) {
-                $rule .= ' -j DROP';
+                $rule .= ' action=drop';
             } elsif ( $element->{$key} eq 'droplog' ) {
-                $rule .= ' -j fwbuild_drop_log';
+                $rule .= ' log=yes action=drop';
             } elsif ( $element->{$key} eq 'reject' ) {
-                $rule .= ' -j fwbuild_reject';
+                $rule .= ' action=jump jump-target=fwbuild_reject';
             } elsif ( $element->{$key} eq 'rejectlog' ) {
-                $rule .= ' -j fwbuild_reject_log';
+                $rule .= ' log=yes action=jump jump-target=fwbuild_reject';
             } elsif ( $element->{$key} eq 'needtunnel' ) {
                 if ( $ctype eq 'nat' ) { die "NAT cannot have needtunnel" }
-                $rule .=
-" -m policy --pol none --dir $ctype -j REJECT --reject-with icmp-admin-prohibited";
+                if ($warned_needtunnel) {
+                    next; # We already warned.
+                }
+
+                $warned_needtunnel = 1;
+                warn("Not configuring needttunnel rules - not applicable to ",
+                    "Mikrotik\n");
+                next;
             } else {
                 die( "Unhandled action: " . $element->{$key} );
             }
@@ -297,17 +315,19 @@ sub output_rule_gen ( $self, $ctype, $element ) {
 
     # We know @out_interfaces and @in_interfaces can't both be
     # simultaniously defined.
-    if (@out_interfaces) {
-        foreach my $if (@out_interfaces) {
-            my $newrule = "-o $if $rule";
-            push $chain->@*, $newrule;
-        }
-    } elsif (@in_interfaces) {
-        foreach my $if (@in_interfaces) {
-            my $newrule = "-i $if $rule";
-            push $chain->@*, $newrule;
-        }
+    if ( @out_interfaces || @in_interfaces || @src_ports || @dst_ports ) {
+
+        my @rules;
+        $rules[0] = $rule;
+
+        @rules = expand_list( \@rules, " in-interface=",  \@in_interfaces );
+        @rules = expand_list( \@rules, " out-interface=", \@out_interfaces );
+        @rules = expand_list( \@rules, " src-port=",      \@src_ports );
+        @rules = expand_list( \@rules, " dst-port=",      \@dst_ports );
+
+        push $chain->@*, @rules;
     } else {
+        # No lists defined
         push $chain->@*, $rule;    # Add rule to chain
     }
 }
@@ -347,100 +367,73 @@ sub output_print ( $self, $fh = \*STDOUT ) {
     );
 
     # Do Mangle tables
-    say $fh "*mangle";
-    say $fh ":PREROUTING ACCEPT [0:0]";
-    say $fh ":POSTROUTING ACCEPT [0:0]";
-    say $fh ":INPUT ACCEPT [0:0]";
-    say $fh ":FORWARD ACCEPT [0:0]";
-    say $fh ":OUTPUT ACCEPT [0:0]";
-    say $fh "-N fwbuild_mss";
-    say $fh "-A PREROUTING  -j fwbuild_mss";
-    say $fh "-A POSTROUTING -j fwbuild_mss";
-    say $fh "-A OUTPUT      -j fwbuild_mss";
-
     foreach
       my $chain ( grep { $tabletype{$_} eq 'mangle' } sort keys %tabletype )
     {
-        $self->output_chain_print( $chain, $fh );
+        $self->output_chain_print( 'mangle', $chain, $fh );
     }
-
-    say $fh "COMMIT";
 
     # Do NAT tables
-    say $fh "*nat";
-    say $fh ":PREROUTING ACCEPT [0:0]";
-    say $fh ":POSTROUTING ACCEPT [0:0]";
-    say $fh ":INPUT ACCEPT [0:0]";
-    say $fh ":OUTPUT ACCEPT [0:0]";
-    say $fh "-N fwbuild_snat_in";
-    say $fh "-N fwbuild_snat_pr";
-    say $fh "-N fwbuild_dnat";
-    say $fh "-A PREROUTING  -j fwbuild_dnat";
-    say $fh "-A OUTPUT      -j fwbuild_dnat";
-    say $fh "-A POSTROUTING -j fwbuild_snat_pr";
-    say $fh "-A INPUT       -j fwbuild_snat_in";
-
     foreach my $chain ( grep { $tabletype{$_} eq 'nat' } sort keys %tabletype )
     {
-        $self->output_chain_print( $chain, $fh );
+        $self->output_chain_print( 'nat', $chain, $fh );
     }
 
-    say $fh "COMMIT";
-
     # Do Filter tables
-    say $fh "*filter";
-    say $fh ":INPUT DROP [0:0]";
-    say $fh ":FORWARD DROP [0:0]";
-    say $fh ":OUTPUT DROP [0:0]";
-    say $fh "-N fwbuild_in";
-    say $fh "-N fwbuild_out";
-    say $fh "-n fwbuild_drop_log";
-    say $fh "-N fwbuild_reject";
-    say $fh "-N fwbuild_reject_log";
-    say $fh "-A INPUT -j fwbuild_in";
-    say $fh "-A INPUT -j ACCEPT";
-    say $fh "-A FORWARD -j fwbuild_in";
-    say $fh "-A FORWARD -j fwbuild_out";
-    say $fh "-A FORWARD -j ACCEPT";
-    say $fh "-A OUTPUT -j fwbuild_out";
-    say $fh "-A OUTPUT -j ACCEPT";
+    my $filter = "/ip firewall filter";
+    my $ch     = "chain=fwbuild_reject";
+    my $reject = "log=yes action=reject";
 
-    say $fh
-      "-A fwbuild_reject -p udp -j REJECT --reject-with icmp-port-unreachable";
-    say $fh "-A fwbuild_reject -p tcp -j REJECT --reject-with tcp-reset";
-    say $fh "-A fwbuild_reject -j REJECT --reject-with icmp-proto-unreachable";
+    # Set up reject rules
+    say $fh "$filter remove [ $filter find $ch ]";
+    say $fh "$filter add $ch protocol=udp $reject ", "reject-with=icmp-port-unreachable";
+    say $fh "$filter add $ch protocol=tcp $reject reject-with=tcp-reset";
+    say $fh "$filter add $ch $reject reject-with=icmp-protocol-unreachable";
 
-    say $fh "-A fwbuild_reject_log -j LOG";
-    say $fh "-A fwbuild_reject_log -j fwbuild_reject_log";
+    # Set up existing conn allow rules
+    foreach my $v ( "fwbuild_in", "fwbuild_out" ) {
+        say $fh "$filter add chain=$v connection-state=established,related ",
+            "action=accept";
+    }
 
-    say $fh "-A fwbuild_drop_log -j LOG";
-    say $fh "-A fwbuild_drop_log -j DROP";
-
-    say $fh
-"-A fwbuild_in -m conntrack --ctstate INVALID,RELATED,ESTABLISHED -j ACCEPT";
-    say $fh
-"-A fwbuild_out -m conntrack --ctstate INVALID,RELATED,ESTABLISHED -j ACCEPT";
-
+    # Set up rules
     foreach
       my $chain ( grep { $tabletype{$_} eq 'filter' } sort keys %tabletype )
     {
-        $self->output_chain_print( $chain, $fh );
+        $self->output_chain_print( 'filter', $chain, $fh );
     }
 
-    say $fh "-A fwbuild_in  -j LOG";
-    say $fh "-A fwbuild_in  -j DROP";
-    say $fh "-A fwbuild_out -j LOG";
-    say $fh "-A fwbuild_out -j DROP";
-
-    say $fh "COMMIT";
+    # Default deny
+    # Set up existing conn allow rules
+    foreach my $v ( "fwbuild_in", "fwbuild_out" ) {
+        say $fh "$filter add chain=$v log=yes action=drop";
+    }
 }
 
-sub output_chain_print ( $self, $chain, $fh ) {
+# Type = mangle or filter
+sub output_chain_print ( $self, $type, $chain, $fh ) {
     if ( !defined($chain) ) { confess 'Assert failed: $chain is undef' }
+
+    say $fh "/ip firewall $type remove ", "[ /ip firewall $type find chain=$chain ]";
+
     my (@rules) = $self->get_pending_rules($chain)->@*;
     foreach my $rule (@rules) {
-        say $fh "-A $chain $rule";
+        say $fh "/ip firewall $type add chain=$chain $rule";
     }
+}
+
+# Adds string to a list and returns a list with that string
+# added to each element
+sub expand_list ( $src_list, $prefix, $value_list ) {
+    if ( @$value_list == 0 ) { return @$src_list }
+
+    my @output;
+    foreach my $src (@$src_list) {
+        foreach my $value (@$value_list) {
+            push @output, "$src$prefix$value";
+        }
+    }
+    return @output;
 }
 
 __PACKAGE__->meta->make_immutable;

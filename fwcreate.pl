@@ -9,6 +9,8 @@ use lib 'lib';
 use JCM::Boilerplate 'script';
 
 use FWCreate::IPTables;
+use FWCreate::Mikrotik;
+
 use List::Util qw/any/;
 use Regexp::Common;
 
@@ -22,6 +24,7 @@ MAIN: {
     my $state = {
         done       => 0,
         line       => 0,
+        file       => '__NONE__',
         line_start => 0,
         var        => {},
         list       => {
@@ -35,8 +38,41 @@ MAIN: {
         out    => [],
     };
 
+    if ( exists( $ARGV[1] ) ) {
+        read_file( $state, $ARGV[1] );
+    } else {
+        read_file( $state, undef );
+    }
+
+    my $output;
+    if ( $type eq 'iptables' ) {
+        $output = FWCreate::IPTables->new( rules => $state );
+    } elsif ( $type eq 'mikrotik' ) {
+        $output = FWCreate::Mikrotik->new( rules => $state );
+    } else {
+        die("Invalid type: $type");
+    }
+
+    $output->output();
+}
+
+sub read_file ( $state, $file = undef ) {
+    my $fh;
+    if ( !defined($file) ) {
+        $file = "__STDIN__";
+        $fh   = *STDIN;
+    } else {
+        open $fh, '<', $file or die("could not open $file: $!");
+    }
+
+    my $oldline = $state->{line};
+    my $oldfile = $state->{file};
+
+    $state->{line} = 0;
+    $state->{file} = $file;
+
     my $command = '';
-    while ( my $line = <stdin> ) {
+    while ( my $line = <$fh> ) {
         chomp $line;
         $state->{line}++;
 
@@ -67,16 +103,8 @@ MAIN: {
     }
     process_line( $state, $command );
 
-    my $output;
-    if ( $type eq 'iptables' ) {
-        $output = FWCreate::IPTables->new( rules => $state );
-    } elsif ( $type eq 'mikrotik' ) {
-        die('not implemented');
-    } else {
-        die("Invalid type: $type");
-    }
-
-    $output->output();
+    $state->{line} = $oldline;
+    $state->{file} = $oldfile;
 }
 
 sub process_line ( $state, $cmd ) {
@@ -87,6 +115,7 @@ sub process_line ( $state, $cmd ) {
     my (@parts) = split /\s+/, $cmd;
     given ( $parts[0] ) {
         when ('in') { cmd_in( $state, @parts ) }
+        when ('include') { cmd_include( $state, @parts ) }
         when ('list') { cmd_list( $state, @parts ) }
         when ('mangle') { cmd_mangle( $state, @parts ) }
         when ('nat') { cmd_nat( $state, @parts ) }
@@ -97,6 +126,16 @@ sub process_line ( $state, $cmd ) {
             die_line( $state, "Unknown command '" . $parts[0] . "'" );
         }
     }
+}
+
+sub cmd_include ( $state, @cmd ) {
+    shift @cmd;
+    if ( scalar(@cmd) > 1 ) {
+        die_line( $state,
+            "include requires only a filename without white space" );
+    }
+
+    read_file( $state, $cmd[0] );
 }
 
 sub cmd_list ( $state, @cmd ) {
@@ -401,7 +440,7 @@ sub validate_value ( $state, $type, $val ) {
     $type = lc($type);
     given ($type) {
         when ('action') {
-            if ( $val !~ m/^(pass|drop|reject|needtunnel)$/ ) {
+            if ( $val !~ m/^(pass|drop|droplog|reject|rejectlog|needtunnel)$/ ) {
                 die_line( $state, "$val is not a valid action" );
             }
         }
@@ -432,7 +471,7 @@ sub validate_value ( $state, $type, $val ) {
                 if ( !defined( $state->{list}{net} ) ) {
                     die_line( $state, "$val is not a proper table name" );
                 }
-            } elsif ( $val !~ m/^$RE{net}{IPv4}$/ ) {
+            } elsif ( $val !~ m/^$RE{net}{IPv4}(?:(?:\/\d+)?)$/ ) {
                 die_line( $state, "$val is not a valid ip address" );
             }
         }
@@ -491,8 +530,10 @@ sub validate_value ( $state, $type, $val ) {
 }
 
 sub die_line ( $state, @msg ) {
-    say STDERR (
-        "Input file line " . $state->{line_start} . ": " . join( " ", @msg ) );
+    my $file = $state->{file};
+    say STDERR ( "Input file [ $file ] line "
+          . $state->{line_start} . ": "
+          . join( " ", @msg ) );
     exit 1;
 }
 

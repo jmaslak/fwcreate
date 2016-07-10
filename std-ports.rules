@@ -1,0 +1,27 @@
+#
+# Define some standard ports
+#
+
+# Ports
+var bacula_sd     9103
+var bgp            179
+var dns             53
+var http            80
+var https          443
+var ike            500
+var krb             88
+var ldaps          636
+var ntp            123
+var puppet        8140
+var ssh             22
+var synergy      24800
+var syslog         514
+
+list port bfd
+    3784
+    3785
+
+list port jabber
+    5222
+    5223
+
