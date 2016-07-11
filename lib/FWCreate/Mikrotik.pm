@@ -82,12 +82,50 @@ sub output ( $self, $fh = \*STDOUT ) {
     #
     # The "map" is to copy the value, so we don't modifiy it.
     foreach my $s ( map { $_ } $self->snat_pr->@* ) {
-        $s =~ s/-j MASQUERADE/-j ACCEPT/g;
+        $s =~ s/action=masquerade/action=accept/g;
         push $self->snat_in->@*, $s;
     }
 
     # Do the actual output here
     $self->output_print($fh);
+
+    say $fh "/ip firewall nat remove ",
+        "[ /ip firewall nat find chain=prerouting ]";
+    say $fh "/ip firewall nat add chain=prerouting action=jump jump-target=fwbuild_dnat";
+    say $fh "/ip firewall nat remove ",
+        "[ /ip firewall nat find chain=output ]";
+    say $fh "/ip firewall nat add chain=output action=jump jump-target=fwbuild_dnat";
+    say $fh "/ip firewall nat remove ",
+        "[ /ip firewall nat find chain=postrouting ]";
+    say $fh "/ip firewall nat add chain=postrouting action=jump jump-target=fwbuild_snat_pr";
+    say $fh "/ip firewall nat remove ",
+        "[ /ip firewall nat find chain=input ]";
+    say $fh "/ip firewall nat add chain=input action=jump jump-target=fwbuild_snat_in";
+
+    say $fh "/ip firewall filter remove ",
+        "[ /ip firewall filter find chain=input ]";
+    say $fh "/ip firewall filter add chain=input action=jump jump-target=fwbuild_in";
+    say $fh "/ip firewall filter add chain=input action=accept";
+    say $fh "/ip firewall filter remove ",
+        "[ /ip firewall filter find chain=forward ]";
+    say $fh "/ip firewall filter add chain=forward action=jump jump-target=fwbuild_in";
+    say $fh "/ip firewall filter add chain=forward action=jump jump-target=fwbuild_out";
+    say $fh "/ip firewall filter add chain=forward action=accept";
+    say $fh "/ip firewall filter remove ",
+        "[ /ip firewall filter find chain=output ]";
+    say $fh "/ip firewall filter add chain=output action=jump jump-target=fwbuild_out";
+    say $fh "/ip firewall filter add chain=output action=accept";
+
+    say $fh "/ip firewall mangle remove ",
+        "[ /ip firewall mangle find chain=prerouting ]";
+    say $fh "/ip firewall mangle add chain=prerouting action=jump jump-target=fwbuild_mss";
+    say $fh "/ip firewall mangle remove ",
+        "[ /ip firewall mangle find chain=postrouting ]";
+    say $fh "/ip firewall mangle add chain=postrouting action=jump jump-target=fwbuild_mss";
+    say $fh "/ip firewall mangle remove ",
+        "[ /ip firewall mangle find chain=output ]";
+    say $fh "/ip firewall mangle add chain=output action=jump jump-target=fwbuild_mss";
+
 }
 
 sub output_lists ( $self, $fh ) {
