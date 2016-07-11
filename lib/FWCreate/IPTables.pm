@@ -90,6 +90,7 @@ sub output($self) {
     }
 
     # Do the actual output here
+    say 'iptables -Z'; # Zero statistics
     say 'iptables-restore <<_IPTABLES_RESTORE_';
     $self->output_print();
     say "_IPTABLES_RESTORE_";
