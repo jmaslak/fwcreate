@@ -16,6 +16,7 @@ var puppet        8140
 var ssh             22
 var synergy      24800
 var syslog         514
+var time            37
 
 list port bfd
     3784

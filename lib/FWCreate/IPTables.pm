@@ -394,7 +394,7 @@ sub output_print ( $self, $fh = \*STDOUT ) {
     say $fh ":OUTPUT DROP [0:0]";
     say $fh "-N fwbuild_in";
     say $fh "-N fwbuild_out";
-    say $fh "-n fwbuild_drop_log";
+    say $fh "-N fwbuild_drop_log";
     say $fh "-N fwbuild_reject";
     say $fh "-N fwbuild_reject_log";
     say $fh "-A INPUT -j fwbuild_in";
@@ -410,10 +410,10 @@ sub output_print ( $self, $fh = \*STDOUT ) {
     say $fh "-A fwbuild_reject -p tcp -j REJECT --reject-with tcp-reset";
     say $fh "-A fwbuild_reject -j REJECT --reject-with icmp-proto-unreachable";
 
-    say $fh "-A fwbuild_reject_log -j LOG";
+    say $fh "-A fwbuild_reject_log -j NFLOG --nflog-prefix \"REJECT \"";
     say $fh "-A fwbuild_reject_log -j fwbuild_reject_log";
 
-    say $fh "-A fwbuild_drop_log -j LOG";
+    say $fh "-A fwbuild_drop_log -j NFLOG --nflog-prefix \"DROP \"";
     say $fh "-A fwbuild_drop_log -j DROP";
 
     say $fh
@@ -427,9 +427,9 @@ sub output_print ( $self, $fh = \*STDOUT ) {
         $self->output_chain_print( $chain, $fh );
     }
 
-    say $fh "-A fwbuild_in  -j LOG";
+    say $fh "-A fwbuild_in  -j NFLOG --nflog-prefix \"DROP\"";
     say $fh "-A fwbuild_in  -j DROP";
-    say $fh "-A fwbuild_out -j LOG";
+    say $fh "-A fwbuild_out -j NFLOG --nflog-prefix \"DROP\"";
     say $fh "-A fwbuild_out -j DROP";
 
     say $fh "COMMIT";
