@@ -428,12 +428,6 @@ sub output_print ( $self, $fh = \*STDOUT ) {
     say $fh "$filter add $ch protocol=tcp $reject reject-with=tcp-reset";
     say $fh "$filter add $ch $reject reject-with=icmp-protocol-unreachable";
 
-    # Set up existing conn allow rules
-    foreach my $v ( "fwbuild_in", "fwbuild_out" ) {
-        say $fh "$filter add chain=$v connection-state=established,related ",
-            "action=accept";
-    }
-
     # Set up rules
     foreach
       my $chain ( grep { $tabletype{$_} eq 'filter' } sort keys %tabletype )
@@ -452,7 +446,13 @@ sub output_print ( $self, $fh = \*STDOUT ) {
 sub output_chain_print ( $self, $type, $chain, $fh ) {
     if ( !defined($chain) ) { confess 'Assert failed: $chain is undef' }
 
+    # Remove old rules
     say $fh "/ip firewall $type remove ", "[ /ip firewall $type find chain=$chain ]";
+
+    # Set up existing conn allow rules
+    if (($type eq 'filter') && ( $chain =~ m/^fwbuild_(in|out)$/ )) {
+        say $fh "/ip firewall $type add chain=$chain connection-state=established,related action=accept"
+    }
 
     my (@rules) = $self->get_pending_rules($chain)->@*;
     foreach my $rule (@rules) {
