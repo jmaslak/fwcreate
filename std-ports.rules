@@ -12,6 +12,7 @@ var ike            500
 var krb             88
 var ldaps          636
 var ntp            123
+var openvpn       1194
 var puppet        8140
 var ssh             22
 var synergy      24800
