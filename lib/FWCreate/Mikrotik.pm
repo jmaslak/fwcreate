@@ -41,15 +41,7 @@ has mss => (
     init_arg => undef,
 );
 
-has snat_in => (
-    is       => 'rw',
-    isa      => 'ArrayRef',
-    required => 1,
-    default  => sub { [] },
-    init_arg => undef,
-);
-
-has snat_pr => (
+has snat => (
     is       => 'rw',
     isa      => 'ArrayRef',
     required => 1,
@@ -77,30 +69,15 @@ sub output ( $self, $fh = \*STDOUT ) {
         $self->output_rules($ctype);
     }
 
-    # the _in table is the same as the _pr table, just with any MASQ
-    # rules changed to ACCEPT rules.
-    #
-    # The "map" is to copy the value, so we don't modifiy it.
-    foreach my $s ( map { $_ } $self->snat_pr->@* ) {
-        $s =~ s/action=masquerade/action=accept/g;
-        push $self->snat_in->@*, $s;
-    }
-
     # Do the actual output here
     $self->output_print($fh);
 
     say $fh "/ip firewall nat remove ",
-        "[ /ip firewall nat find chain=prerouting ]";
-    say $fh "/ip firewall nat add chain=prerouting action=jump jump-target=fwbuild_dnat";
+        "[ /ip firewall nat find chain=srcnat ]";
+    say $fh "/ip firewall nat add chain=srcnat action=jump jump-target=fwbuild_snat";
     say $fh "/ip firewall nat remove ",
-        "[ /ip firewall nat find chain=output ]";
-    say $fh "/ip firewall nat add chain=output action=jump jump-target=fwbuild_dnat";
-    say $fh "/ip firewall nat remove ",
-        "[ /ip firewall nat find chain=postrouting ]";
-    say $fh "/ip firewall nat add chain=postrouting action=jump jump-target=fwbuild_snat_pr";
-    say $fh "/ip firewall nat remove ",
-        "[ /ip firewall nat find chain=input ]";
-    say $fh "/ip firewall nat add chain=input action=jump jump-target=fwbuild_snat_in";
+        "[ /ip firewall nat find chain=dstnat]";
+    say $fh "/ip firewall nat add chain=input action=jump jump-target=fwbuild_dnat";
 
     say $fh "/ip firewall filter remove ",
         "[ /ip firewall filter find chain=input ]";
@@ -116,9 +93,6 @@ sub output ( $self, $fh = \*STDOUT ) {
     say $fh "/ip firewall filter add chain=output action=jump jump-target=fwbuild_out";
     say $fh "/ip firewall filter add chain=output action=accept";
 
-    say $fh "/ip firewall mangle remove ",
-        "[ /ip firewall mangle find chain=prerouting ]";
-    say $fh "/ip firewall mangle add chain=prerouting action=jump jump-target=fwbuild_mss";
     say $fh "/ip firewall mangle remove ",
         "[ /ip firewall mangle find chain=postrouting ]";
     say $fh "/ip firewall mangle add chain=postrouting action=jump jump-target=fwbuild_mss";
@@ -176,7 +150,7 @@ sub output_rule_gen ( $self, $ctype, $element ) {
         $chain = $self->mss;
     } elsif ( $ctype eq 'nat' ) {
         if ( exists( $element->{snat} ) ) {
-            $chain = $self->snat_pr;
+            $chain = $self->snat;
         } elsif ( exists( $element->{dnat} ) ) {
             $chain = $self->dnat;
         } else {
@@ -381,10 +355,8 @@ sub get_pending_rules ( $self, $chainname ) {
         $pending = $self->out;
     } elsif ( $chain eq 'mss' ) {
         $pending = $self->mss;
-    } elsif ( $chain eq 'snat_in' ) {
-        $pending = $self->snat_in;
-    } elsif ( $chain eq 'snat_pr' ) {
-        $pending = $self->snat_pr;
+    } elsif ( $chain eq 'snat' ) {
+        $pending = $self->snat;
     } elsif ( $chain eq 'dnat' ) {
         $pending = $self->dnat;
     } else {
@@ -399,8 +371,7 @@ sub output_print ( $self, $fh = \*STDOUT ) {
         fwbuild_in      => 'filter',
         fwbuild_out     => 'filter',
         fwbuild_mss     => 'mangle',
-        fwbuild_snat_in => 'nat',
-        fwbuild_snat_pr => 'nat',
+        fwbuild_snat    => 'nat',
         fwbuild_dnat    => 'nat',
     );
 
