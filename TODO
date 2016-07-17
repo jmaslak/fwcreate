@@ -1,0 +1,5 @@
+TODOs
+ - Add date to top comments in generated output
+ - Add an "output type" specifier in the source file
+ - Add an "IF" statement to only compile certain rules if needed
+
