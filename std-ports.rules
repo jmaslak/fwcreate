@@ -27,3 +27,6 @@ list port jabber
     5222
     5223
 
+# Protocols
+var vrrp           112
+

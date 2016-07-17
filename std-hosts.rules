@@ -26,3 +26,5 @@ list net nonpublic
     224.0.0.0/4
     240.0.0.0/4
 
+var vrrp_mc 224.0.0.18 
+
