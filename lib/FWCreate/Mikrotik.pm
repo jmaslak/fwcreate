@@ -72,12 +72,12 @@ sub output ( $self, $fh = \*STDOUT ) {
     # Do the actual output here
     $self->output_print($fh);
 
-    say $fh "/ip firewall nat remove ",
-        "[ /ip firewall nat find chain=srcnat ]";
+    say $fh "/ip firewall nat remove [ find chain=postrouting ]";
+    say $fh "/ip firewall nat remove [ find chain=srcnat ]";
     say $fh "/ip firewall nat add chain=srcnat action=jump jump-target=fwbuild_snat";
-    say $fh "/ip firewall nat remove ",
-        "[ /ip firewall nat find chain=dstnat]";
-    say $fh "/ip firewall nat add chain=input action=jump jump-target=fwbuild_dnat";
+    say $fh "/ip firewall nat remove [ find chain=input ]";
+    say $fh "/ip firewall nat remove [ find chain=dstnat ]";
+    say $fh "/ip firewall nat add chain=dstnat action=jump jump-target=fwbuild_dnat";
 
     say $fh "/ip firewall filter remove ",
         "[ /ip firewall filter find chain=input ]";
