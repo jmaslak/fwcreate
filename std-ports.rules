@@ -28,5 +28,6 @@ list port jabber
     5223
 
 # Protocols
+var gre             47
 var vrrp           112
 
