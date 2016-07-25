@@ -450,7 +450,7 @@ sub validate_value ( $state, $type, $val ) {
                 if ( !defined( $state->{list}{iface} ) ) {
                     die_line( $state, "$val is not a proper table name" );
                 }
-            } elsif ( $val !~ m/^[a-z]([a-z\d]*)((\.\d+)?)$/i ) {
+            } elsif ( $val !~ m/^[a-z]([a-z_\d]*)((\.\d+)?)$/i ) {
                 die_line( $state, "$val is not a valid interface" );
             }
         }
