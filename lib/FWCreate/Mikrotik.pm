@@ -33,6 +33,22 @@ has out => (
     init_arg => undef,
 );
 
+has dscp => (
+    is       => 'rw',
+    isa      => 'ArrayRef',
+    required => 1,
+    default  => sub { [] },
+    init_arg => undef,
+);
+
+has mark => (
+    is       => 'rw',
+    isa      => 'ArrayRef',
+    required => 1,
+    default  => sub { [] },
+    init_arg => undef,
+);
+
 has mss => (
     is       => 'rw',
     isa      => 'ArrayRef',
@@ -65,7 +81,7 @@ sub output ( $self, $fh = \*STDOUT ) {
 
     $self->output_lists($fh);
 
-    for my $ctype ( 'mangle', 'nat', 'in', 'out' ) {
+    for my $ctype ( 'mangle', 'nat', 'in', 'out', 'dscp', 'mark' ) {
         $self->output_rules($ctype);
     }
 
@@ -74,32 +90,43 @@ sub output ( $self, $fh = \*STDOUT ) {
 
     say $fh "/ip firewall nat remove [ find chain=postrouting ]";
     say $fh "/ip firewall nat remove [ find chain=srcnat ]";
-    say $fh "/ip firewall nat add chain=srcnat action=jump jump-target=fwbuild_snat";
+    say $fh
+      "/ip firewall nat add chain=srcnat action=jump jump-target=fwbuild_snat";
     say $fh "/ip firewall nat remove [ find chain=input ]";
     say $fh "/ip firewall nat remove [ find chain=dstnat ]";
-    say $fh "/ip firewall nat add chain=dstnat action=jump jump-target=fwbuild_dnat";
+    say $fh
+      "/ip firewall nat add chain=dstnat action=jump jump-target=fwbuild_dnat";
 
     say $fh "/ip firewall filter remove ",
-        "[ /ip firewall filter find chain=input ]";
-    say $fh "/ip firewall filter add chain=input action=jump jump-target=fwbuild_in";
+      "[ /ip firewall filter find chain=input ]";
+    say $fh
+      "/ip firewall filter add chain=input action=jump jump-target=fwbuild_in";
     say $fh "/ip firewall filter add chain=input action=accept";
     say $fh "/ip firewall filter remove ",
-        "[ /ip firewall filter find chain=forward ]";
-    say $fh "/ip firewall filter add chain=forward action=jump jump-target=fwbuild_in";
-    say $fh "/ip firewall filter add chain=forward action=jump jump-target=fwbuild_out";
+      "[ /ip firewall filter find chain=forward ]";
+    say $fh "/ip firewall filter add chain=forward action=jump ",
+      "jump-target=fwbuild_in";
+    say $fh "/ip firewall filter add chain=forward action=jump ",
+     "jump-target=fwbuild_out";
     say $fh "/ip firewall filter add chain=forward action=accept";
     say $fh "/ip firewall filter remove ",
-        "[ /ip firewall filter find chain=output ]";
-    say $fh "/ip firewall filter add chain=output action=jump jump-target=fwbuild_out";
+      "[ /ip firewall filter find chain=output ]";
+    say $fh "/ip firewall filter add chain=output action=jump ",
+      "jump-target=fwbuild_out";
     say $fh "/ip firewall filter add chain=output action=accept";
 
     say $fh "/ip firewall mangle remove ",
-        "[ /ip firewall mangle find chain=postrouting ]";
-    say $fh "/ip firewall mangle add chain=postrouting action=jump jump-target=fwbuild_mss";
+      "[ /ip firewall mangle find chain=postrouting ]";
+    say $fh "/ip firewall mangle add chain=postrouting action=jump ",
+      "jump-target=fwbuild_mark";
+    say $fh "/ip firewall mangle add chain=postrouting action=jump ",
+      "jump-target=fwbuild_dscp";
+    say $fh "/ip firewall mangle add chain=postrouting action=jump ",
+      " jump-target=fwbuild_mss";
     say $fh "/ip firewall mangle remove ",
-        "[ /ip firewall mangle find chain=output ]";
-    say $fh "/ip firewall mangle add chain=output action=jump jump-target=fwbuild_mss";
-
+      "[ /ip firewall mangle find chain=output ]";
+    say $fh "/ip firewall mangle add chain=output action=jump ",
+      "jump-target=fwbuild_mss";
 }
 
 sub output_lists ( $self, $fh ) {
@@ -119,7 +146,8 @@ sub output_list_net ( $self, $nm, $fh ) {
     my $key = $nm;
     my $set = "NET_$nm";
 
-    say $fh "/ip firewall address-list remove ", "[ /ip firewall address-list find list=$set ]";
+    say $fh "/ip firewall address-list remove ",
+      "[ /ip firewall address-list find list=$set ]";
 
     my $list = $self->rules->{list}{net}->{$key};
     foreach my $net ( $list->@* ) {
@@ -156,6 +184,10 @@ sub output_rule_gen ( $self, $ctype, $element ) {
         } else {
             die("Unknown nat type on rule");    # XXX should have more info
         }
+    } elsif ( $ctype eq 'mark' ) {
+        $chain = $self->mark;
+    } elsif ( $ctype eq 'dscp' ) {
+        $chain = $self->dscp;
     } else {
         die("Unknown command type: $ctype");
     }
@@ -164,17 +196,20 @@ sub output_rule_gen ( $self, $ctype, $element ) {
 
     # Keys are sort-val (4 chars) followed by the field name
     my %keytype = (
-        '000_if_in'   => 'iface',
-        '001_if_out'  => 'iface',
-        '002_proto'   => 'proto',
-        '003_src'     => 'ip',
-        '004_sport'   => 'port',
-        '005_dst'     => 'ip',
-        '006_dport'   => 'port',
-        '007_dnat'    => 'natip:opt_port',
-        '008_snat'    => 'natip:opt_port',
-        '009_max_mss' => 'int16',
-        '010_action'  => '',
+        '000_if_in'    => 'iface',
+        '001_if_out'   => 'iface',
+        '002_proto'    => 'proto',
+        '003_src'      => 'ip',
+        '004_sport'    => 'port',
+        '005_dst'      => 'ip',
+        '006_dport'    => 'port',
+        '007_dnat'     => 'natip:opt_port',
+        '008_snat'     => 'natip:opt_port',
+        '009_max_mss'  => 'int16',
+        '010_dscp'     => 'dscp',
+        '011_action'   => '',
+        '012_set_dscp' => '',
+        '013_set_mark' => '',
     );
 
     my (%working) =
@@ -240,25 +275,32 @@ sub output_rule_gen ( $self, $ctype, $element ) {
                 my $type = $key eq 'sport' ? 'src-port' : 'dst-port';
                 $rule .= " $type=" . $element->{$key} . " ";
             }
+        } elsif ( $key eq 'dscp' ) {
+            $rule .= ' dscp=' . $element->{$key};
+        } elsif ( $key eq 'set_dscp' ) {
+            $rule .=
+              ' action=change-dscp passthrough=no new-dscp=' . $element->{$key};
+        } elsif ( $key eq 'set_mark' ) {
+            $rule .= ' action=mark-packet passthrough=no new-packet-mark='
+              . $element->{$key};
         } elsif ( $keytype{$sorted} eq 'ip' ) {
             my $ele = $element->{$key};
 
             my $neg = $ele =~ m/^!/;
             $ele =~ s/^!//;
-            my $opt = $neg ? '! ' : '';
-            my $field =
-                $key eq 'src' ? 'src-address' : 'dst-address';
+            my $opt   = $neg          ? '! '          : '';
+            my $field = $key eq 'src' ? 'src-address' : 'dst-address';
 
             if ( $ele =~ m/^<.*>$/ ) {
                 my ($set) = $ele =~ m/^<(.*)>$/;
                 $field .= '-list';
-                $rule .= " $field=${opt}NET_$set";
+                $rule  .= " $field=${opt}NET_$set";
             } else {
                 $rule .= " $field=${opt}$ele";
             }
         } elsif ( $key eq 'max_mss' ) {
             my $biggermss = $element->{$key} + 1;
-            if ($biggermss > 65535) {
+            if ( $biggermss > 65535 ) {
                 die("MSS specified as too big ($biggermss)");
             }
 
@@ -267,13 +309,13 @@ sub output_rule_gen ( $self, $ctype, $element ) {
             $rule .= " action=change-mss";
         } elsif ( $key eq 'snat' ) {
             if ( $element->{$key} eq 'none' ) {
-                $rule .= " action=accept";  # Is this right?
+                $rule .= " action=accept";    # Is this right?
             } elsif ( $element->{$key} eq 'masquerade' ) {
                 $rule .= " action=masquerade";
             } else {
-                my ($addr, $port) = split /:/, $element->{$key};
+                my ( $addr, $port ) = split /:/, $element->{$key};
                 $rule .= " action=src-nat to-address=$addr";
-                if (defined($port)) {
+                if ( defined($port) ) {
                     $rule .= " to-port=$port";
                 }
             }
@@ -281,9 +323,10 @@ sub output_rule_gen ( $self, $ctype, $element ) {
             if ( $element->{$key} eq 'none' ) {
                 $rule .= " action=accept";
             } else {
-                my ($addr, $port) = $element->{$key} =~ m/^([\d\.]+)(?::(\d+))?$/;
+                my ( $addr, $port ) =
+                  $element->{$key} =~ m/^([\d\.]+)(?::(\d+))?$/;
                 $rule .= " action=dst-nat to-address=$addr";
-                if (defined($port)) {
+                if ( defined($port) ) {
                     $rule .= " to-port=$port";
                 }
             }
@@ -304,12 +347,12 @@ sub output_rule_gen ( $self, $ctype, $element ) {
             } elsif ( $element->{$key} eq 'needtunnel' ) {
                 if ( $ctype eq 'nat' ) { die "NAT cannot have needtunnel" }
                 if ($warned_needtunnel) {
-                    next; # We already warned.
+                    next;                     # We already warned.
                 }
 
                 $warned_needtunnel = 1;
-                warn("Not configuring needttunnel rules - not applicable to ",
-                    "Mikrotik\n");
+                warn( "Not configuring needttunnel rules - not applicable to ",
+                    "Mikrotik\n" );
                 next;
             } else {
                 die( "Unhandled action: " . $element->{$key} );
@@ -359,6 +402,10 @@ sub get_pending_rules ( $self, $chainname ) {
         $pending = $self->snat;
     } elsif ( $chain eq 'dnat' ) {
         $pending = $self->dnat;
+    } elsif ( $chain eq 'dscp' ) {
+        $pending = $self->dscp;
+    } elsif ( $chain eq 'mark' ) {
+        $pending = $self->mark;
     } else {
         die("Unknown rule type: $chain");
     }
@@ -368,11 +415,13 @@ sub get_pending_rules ( $self, $chainname ) {
 
 sub output_print ( $self, $fh = \*STDOUT ) {
     my %tabletype = (
-        fwbuild_in      => 'filter',
-        fwbuild_out     => 'filter',
-        fwbuild_mss     => 'mangle',
-        fwbuild_snat    => 'nat',
-        fwbuild_dnat    => 'nat',
+        fwbuild_in   => 'filter',
+        fwbuild_out  => 'filter',
+        fwbuild_mss  => 'mangle',
+        fwbuild_snat => 'nat',
+        fwbuild_dnat => 'nat',
+        fwbuild_dscp => 'mangle',
+        fwbuild_mark => 'mangle',
     );
 
     # Do Mangle tables
@@ -395,7 +444,8 @@ sub output_print ( $self, $fh = \*STDOUT ) {
 
     # Set up reject rules
     say $fh "$filter remove [ $filter find $ch ]";
-    say $fh "$filter add $ch protocol=udp $reject ", "reject-with=icmp-port-unreachable";
+    say $fh "$filter add $ch protocol=udp $reject ",
+      "reject-with=icmp-port-unreachable";
     say $fh "$filter add $ch protocol=tcp $reject reject-with=tcp-reset";
     say $fh "$filter add $ch $reject reject-with=icmp-protocol-unreachable";
 
@@ -418,11 +468,13 @@ sub output_chain_print ( $self, $type, $chain, $fh ) {
     if ( !defined($chain) ) { confess 'Assert failed: $chain is undef' }
 
     # Remove old rules
-    say $fh "/ip firewall $type remove ", "[ /ip firewall $type find chain=$chain ]";
+    say $fh "/ip firewall $type remove ",
+      "[ /ip firewall $type find chain=$chain ]";
 
     # Set up existing conn allow rules
-    if (($type eq 'filter') && ( $chain =~ m/^fwbuild_(in|out)$/ )) {
-        say $fh "/ip firewall $type add chain=$chain connection-state=established,related action=accept"
+    if ( ( $type eq 'filter' ) && ( $chain =~ m/^fwbuild_(in|out)$/ ) ) {
+        say $fh
+"/ip firewall $type add chain=$chain connection-state=established,related action=accept";
     }
 
     my (@rules) = $self->get_pending_rules($chain)->@*;

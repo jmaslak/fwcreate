@@ -121,6 +121,8 @@ sub process_line ( $state, $cmd ) {
         when ('nat') { cmd_nat( $state, @parts ) }
         when ('out') { cmd_out( $state, @parts ) }
         when ('var') { cmd_var( $state, @parts ) }
+        when ('dscp') { cmd_dscp( $state, @parts ) }
+        when ('mark') { cmd_mark( $state, @parts ) }
         when ('__END__') { $state->{end} = 1; }
         default {
             die_line( $state, "Unknown command '" . $parts[0] . "'" );
@@ -201,6 +203,7 @@ sub cmd_mangle ( $state, @cmd ) {
         if_out  => [ 'iface',     [] ],
         sport   => [ 'port',      ['proto'] ],
         dport   => [ 'port',      ['proto'] ],
+        dscp    => [ 'dscp',      [] ],
         proto   => [ 'proto:tcp', [] ],
         src     => [ 'ip',        [] ],
         dst     => [ 'ip',        [] ],
@@ -251,6 +254,8 @@ sub cmd_nat ( $state, @cmd ) {
         if_out => [ 'iface',          ['snat'] ],
         sport  => [ 'port',           ['proto'] ],
         dport  => [ 'port',           ['proto'] ],
+        dscp   => [ 'dscp',           [] ],
+        dscp   => [ 'dscp',           [] ],
         proto  => [ 'proto',          [] ],
         src    => [ 'ip',             [] ],
         dst    => [ 'ip',             [] ],
@@ -338,6 +343,7 @@ sub cmd_in_out ( $ctype, $state, @cmd ) {
         if_out => [ 'iface',  [] ],
         sport  => [ 'port',   ['proto'] ],
         dport  => [ 'port',   ['proto'] ],
+        dscp   => [ 'dscp',   [] ],
         proto  => [ 'proto',  [] ],
         src    => [ 'ip',     [] ],
         dst    => [ 'ip',     [] ],
@@ -398,6 +404,132 @@ sub cmd_in_out ( $ctype, $state, @cmd ) {
     push $state->{$ctype}->@*, \%inout;
 }
 
+sub cmd_mark ( $state, @cmd ) {
+    shift @cmd;
+
+    # FORMAT:
+    #               <type>         <other required>
+    my %elements = (
+        if_out   => [ 'iface', [] ],
+        sport    => [ 'port',  ['proto'] ],
+        dport    => [ 'port',  ['proto'] ],
+        dscp     => [ 'dscp',  [] ],
+        proto    => [ 'proto', [] ],
+        src      => [ 'ip',    [] ],
+        dst      => [ 'ip',    [] ],
+        set_mark => [ 'mark',  [] ],
+    );
+
+    my %mark;
+
+    while ( scalar(@cmd) ) {
+        my $type = lc shift(@cmd);
+        if ( !defined( $elements{$type} ) ) {
+            die_line( $state,
+                "attribute '$type' not valid for mark commands" );
+        }
+
+        if ( !scalar(@cmd) ) {
+            die_line( $state, "attribute '$type' requires a value" );
+        }
+        my $val = expand_variables( $state, shift(@cmd) );
+        validate_value( $state, $elements{$type}->[0], $val );
+        $mark{$type} = $val;
+    }
+
+    foreach my $key ( keys %mark) {
+        if ( !defined( $mark{'set_mark'} ) ) {
+            die_line( $state, "mark command must define set_mark" );
+        }
+        if (   ( scalar( $elements{$key}->[1]->@* ) != 0 )
+            && ( any { !exists( $mark{$_} ) } $elements{$key}->[1]->@* ) )
+        {
+            die_line( $state,
+                    "ip attribute '$key' requires attributes '"
+                  . join( "', '", $elements{$key}->[1]->@* )
+                  . "' to be set" );
+        }
+    }
+
+    if ( ( !exists( $mark{proto} ) ) || ( $mark{proto} !~ m/^(tcp|udp)$/ ) ) {
+        foreach my $ele ( keys %elements ) {
+            if ( !defined( $mark{$ele} ) ) { next; }
+            if ( $elements{$ele}->[0] eq 'port' ) {
+                die_line(
+                    $state,
+                    "Cannot specify a '$ele' unless you also ",
+                    "specify proto udp or proto tcp"
+                );
+            }
+        }
+    }
+
+    push $state->{mark}->@*, \%mark;
+}
+
+sub cmd_dscp ( $state, @cmd ) {
+    shift @cmd;
+
+    # FORMAT:
+    #               <type>         <other required>
+    my %elements = (
+        if_out   => [ 'iface', [] ],
+        sport    => [ 'port',  ['proto'] ],
+        dport    => [ 'port',  ['proto'] ],
+        dscp     => [ 'dscp',  [] ],
+        proto    => [ 'proto', [] ],
+        src      => [ 'ip',    [] ],
+        dst      => [ 'ip',    [] ],
+        set_dscp => [ 'int16', [] ],
+    );
+
+    my %dscp;
+
+    while ( scalar(@cmd) ) {
+        my $type = lc shift(@cmd);
+        if ( !defined( $elements{$type} ) ) {
+            die_line( $state,
+                "attribute '$type' not valid for dscp commands" );
+        }
+
+        if ( !scalar(@cmd) ) {
+            die_line( $state, "attribute '$type' requires a value" );
+        }
+        my $val = expand_variables( $state, shift(@cmd) );
+        validate_value( $state, $elements{$type}->[0], $val );
+        $dscp{$type} = $val;
+    }
+
+    foreach my $key ( keys %dscp) {
+        if ( !defined( $dscp{'set_dscp'} ) ) {
+            die_line( $state, "dscp command must define an set_dscp" );
+        }
+        if (   ( scalar( $elements{$key}->[1]->@* ) != 0 )
+            && ( any { !exists( $dscp{$_} ) } $elements{$key}->[1]->@* ) )
+        {
+            die_line( $state,
+                    "ip attribute '$key' requires attributes '"
+                  . join( "', '", $elements{$key}->[1]->@* )
+                  . "' to be set" );
+        }
+    }
+
+    if ( ( !exists( $dscp{proto} ) ) || ( $dscp{proto} !~ m/^(tcp|udp)$/ ) ) {
+        foreach my $ele ( keys %elements ) {
+            if ( !defined( $dscp{$ele} ) ) { next; }
+            if ( $elements{$ele}->[0] eq 'port' ) {
+                die_line(
+                    $state,
+                    "Cannot specify a '$ele' unless you also ",
+                    "specify proto udp or proto tcp"
+                );
+            }
+        }
+    }
+
+    push $state->{dscp}->@*, \%dscp;
+}
+
 sub cmd_var ( $state, @cmd ) {
     shift @cmd;
     if ( scalar(@cmd) < 2 ) {
@@ -454,10 +586,23 @@ sub validate_value ( $state, $type, $val ) {
                 die_line( $state, "$val is not a valid interface" );
             }
         }
+        when ('mark') {
+            if ( $val !~ m/^[a-z]([a-z_\-\d]*)$/i ) {
+                die_line( $state, "$val is not a valid mark name" );
+            }
+        }
+        when ('dscp') {
+            if ( $val !~ m/^\d+$/ ) {
+                die_line( $state, "$val is not an integer between 0 and 65" );
+            } elsif ( $val > 65 ) {
+                die_line( $state, "$val is not an integer between 0 and 65" );
+            }
+        }
         when ('int16') {
             if ( $val !~ m/^\d+$/ ) {
-                die_line( $state,
-                    "$val is not an integer between 0 and 65535" );
+                die_line( $state, "$val is not an integer between 0 and 65535" );
+            } elsif ( $val > 65535 ) {
+                die_line( $state, "$val is not an integer between 0 and 65535" );
             }
         }
         when ('ip') {
@@ -531,6 +676,9 @@ sub validate_value ( $state, $type, $val ) {
 
 sub die_line ( $state, @msg ) {
     my $file = $state->{file};
+    confess ( "Input file [ $file ] line "
+          . $state->{line_start} . ": "
+          . join( " ", @msg ) );
     say STDERR ( "Input file [ $file ] line "
           . $state->{line_start} . ": "
           . join( " ", @msg ) );
