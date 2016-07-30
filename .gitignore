@@ -8,3 +8,4 @@ den1edge1.rules
 fw01.rules
 edge.*.rules
 ipv6.edge.*.rules
+local.*.rules
