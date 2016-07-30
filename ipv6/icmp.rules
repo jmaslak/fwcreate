@@ -1,0 +1,6 @@
+#
+# ICMP - generally a good thing to allow
+#
+
+in proto icmpv6 action pass
+

@@ -15,6 +15,12 @@ has rules => (
     required => 1,
 );
 
+has family => (
+    is       => 'rw',
+    isa      => 'Str',
+    required => 1,
+);
+
 has in => (
     is       => 'rw',
     isa      => 'ArrayRef',
@@ -64,6 +70,10 @@ has dnat => (
 );
 
 sub output($self) {
+
+    if ($self->family ne 'ipv4') {
+        die("Unsupported address family: " . $self->family . "\n");
+    }
 
     say "#!/bin/bash";
     say "# Programmatically generated! DO NOT EDIT BY HAND!";

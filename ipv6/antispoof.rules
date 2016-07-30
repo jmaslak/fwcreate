@@ -1,0 +1,7 @@
+#
+# Generic antispoofing rules
+#
+
+# in if_in <outside> src <nonpublic> action droplog
+# in if_in <outside> dst <nonpublic> action droplog
+

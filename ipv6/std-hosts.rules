@@ -1,0 +1,7 @@
+#
+# Define some standard hosts
+#
+
+list net public
+    2000::/3
+

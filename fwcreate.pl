@@ -11,7 +11,8 @@ use JCM::Boilerplate 'script';
 use FWCreate::IPTables;
 use FWCreate::Mikrotik;
 
-use List::Util qw/any/;
+use Data::Validate::IP qw(is_ipv4 is_ipv6);
+use List::Util qw(any);
 use Regexp::Common;
 
 MAIN: {
@@ -25,6 +26,7 @@ MAIN: {
         done       => 0,
         line       => 0,
         file       => '__NONE__',
+        family     => 'ipv4',
         line_start => 0,
         var        => {},
         list       => {
@@ -32,10 +34,12 @@ MAIN: {
             net   => {},
             port  => {},
         },
-        in     => [],
-        mangle => [],
-        nat    => [],
-        out    => [],
+        in       => [],
+        mangle   => [],
+        nat      => [],
+        out      => [],
+        num_cmd  => 0,
+        valid_ip => sub { is_ipv4(@_) },
     };
 
     if ( exists( $ARGV[1] ) ) {
@@ -46,9 +50,15 @@ MAIN: {
 
     my $output;
     if ( $type eq 'iptables' ) {
-        $output = FWCreate::IPTables->new( rules => $state );
+        $output = FWCreate::IPTables->new(
+            rules  => $state,
+            family => $state->{family}
+        );
     } elsif ( $type eq 'mikrotik' ) {
-        $output = FWCreate::Mikrotik->new( rules => $state );
+        $output = FWCreate::Mikrotik->new(
+            rules  => $state,
+            family => $state->{family}
+        );
     } else {
         die("Invalid type: $type");
     }
@@ -123,18 +133,20 @@ sub process_line ( $state, $cmd ) {
         when ('var') { cmd_var( $state, @parts ) }
         when ('dscp') { cmd_dscp( $state, @parts ) }
         when ('mark') { cmd_mark( $state, @parts ) }
+        when ('family') { cmd_family( $state, @parts ) }
         when ('__END__') { $state->{end} = 1; }
         default {
             die_line( $state, "Unknown command '" . $parts[0] . "'" );
         }
     }
+
+    $state->{num_cmd}++;
 }
 
 sub cmd_include ( $state, @cmd ) {
     shift @cmd;
     if ( scalar(@cmd) > 1 ) {
-        die_line( $state,
-            "include requires only a filename without white space" );
+        die_line( $state, "include requires only a filename without white space" );
     }
 
     read_file( $state, $cmd[0] );
@@ -143,8 +155,7 @@ sub cmd_include ( $state, @cmd ) {
 sub cmd_list ( $state, @cmd ) {
     shift @cmd;
     if ( scalar(@cmd) < 2 ) {
-        die_line( $state,
-            "list requires a list type, name, and at least one value" );
+        die_line( $state, "list requires a list type, name, and at least one value" );
     }
 
     $cmd[0] = lc( $cmd[0] );
@@ -215,8 +226,7 @@ sub cmd_mangle ( $state, @cmd ) {
     while ( scalar(@cmd) ) {
         my $type = lc shift(@cmd);
         if ( !defined( $elements{$type} ) ) {
-            die_line( $state,
-                "attribute '$type' not valid for mangle commands" );
+            die_line( $state, "attribute '$type' not valid for mangle commands" );
         }
 
         if ( !scalar(@cmd) ) {
@@ -246,6 +256,10 @@ sub cmd_mangle ( $state, @cmd ) {
 
 sub cmd_nat ( $state, @cmd ) {
     shift @cmd;
+
+    if ( $state->{family} ne 'ipv4' ) {
+        die_line( $state, $state->{family} . " does not support NAT" );
+    }
 
     # FORMAT:
     #               <type>         <other required>
@@ -281,12 +295,10 @@ sub cmd_nat ( $state, @cmd ) {
 
     foreach my $key ( keys %nat ) {
         if ( !( defined( $nat{snat} ) || defined( $nat{dnat} ) ) ) {
-            die_line( $state, "nat command must define either snat or dnat ",
-                "attribute" );
+            die_line( $state, "nat command must define either snat or dnat ", "attribute" );
         }
         if ( defined( $nat{snat} ) && defined( $nat{dnat} ) ) {
-            die_line( $state,
-                "nat snat and dnat are incompatible with each other" );
+            die_line( $state, "nat snat and dnat are incompatible with each other" );
         }
         if (   ( scalar( $elements{$key}->[1]->@* ) != 0 )
             && ( any { !exists( $nat{$_} ) } $elements{$key}->[1]->@* ) )
@@ -355,8 +367,7 @@ sub cmd_in_out ( $ctype, $state, @cmd ) {
     while ( scalar(@cmd) ) {
         my $type = lc shift(@cmd);
         if ( !defined( $elements{$type} ) ) {
-            die_line( $state,
-                "attribute '$type' not valid for $ctype commands" );
+            die_line( $state, "attribute '$type' not valid for $ctype commands" );
         }
 
         if ( !scalar(@cmd) ) {
@@ -425,8 +436,7 @@ sub cmd_mark ( $state, @cmd ) {
     while ( scalar(@cmd) ) {
         my $type = lc shift(@cmd);
         if ( !defined( $elements{$type} ) ) {
-            die_line( $state,
-                "attribute '$type' not valid for mark commands" );
+            die_line( $state, "attribute '$type' not valid for mark commands" );
         }
 
         if ( !scalar(@cmd) ) {
@@ -437,7 +447,7 @@ sub cmd_mark ( $state, @cmd ) {
         $mark{$type} = $val;
     }
 
-    foreach my $key ( keys %mark) {
+    foreach my $key ( keys %mark ) {
         if ( !defined( $mark{'set_mark'} ) ) {
             die_line( $state, "mark command must define set_mark" );
         }
@@ -467,6 +477,33 @@ sub cmd_mark ( $state, @cmd ) {
     push $state->{mark}->@*, \%mark;
 }
 
+sub cmd_family ( $state, @cmd ) {
+    shift @cmd;
+
+    if ( scalar(@cmd) != 1 ) {
+        die_line(
+            $state,
+            "Must specify only an address family for a family command - ",
+            "specify ipv4 or ipv6"
+        );
+    }
+
+    if ( $cmd[0] !~ m/^ipv[46]$/s ) {
+        die_line( $state, "Family " . $cmd[0] . " is invalid.  Must be ipv4 or ipv6" );
+    }
+
+    if ( $state->{num_cmd} != 0 ) {
+        die_line( $state, "Family command must be specified once and before all other ",
+            "commands" );
+    }
+    $state->{family} = $cmd[0];
+    if ( $cmd[0] eq 'ipv4' ) {
+        $state->{valid_ip} = sub { is_ipv4(@_) };
+    } else {
+        $state->{valid_ip} = sub { is_ipv6(@_) };
+    }
+}
+
 sub cmd_dscp ( $state, @cmd ) {
     shift @cmd;
 
@@ -488,8 +525,7 @@ sub cmd_dscp ( $state, @cmd ) {
     while ( scalar(@cmd) ) {
         my $type = lc shift(@cmd);
         if ( !defined( $elements{$type} ) ) {
-            die_line( $state,
-                "attribute '$type' not valid for dscp commands" );
+            die_line( $state, "attribute '$type' not valid for dscp commands" );
         }
 
         if ( !scalar(@cmd) ) {
@@ -500,7 +536,7 @@ sub cmd_dscp ( $state, @cmd ) {
         $dscp{$type} = $val;
     }
 
-    foreach my $key ( keys %dscp) {
+    foreach my $key ( keys %dscp ) {
         if ( !defined( $dscp{'set_dscp'} ) ) {
             die_line( $state, "dscp command must define an set_dscp" );
         }
@@ -552,8 +588,7 @@ sub expand_variables ( $state, $val ) {
     while ( $val =~ m/\$/ ) {
         my ($var) = $val =~ m/\$([A-Za-z0-9_]+)/;
         if ( !defined($var) ) {
-            die_line( $state,
-                "variable name must consist of alphanumerics only" );
+            die_line( $state, "variable name must consist of alphanumerics only" );
         }
 
         $var = lc($var);
@@ -616,8 +651,24 @@ sub validate_value ( $state, $type, $val ) {
                 if ( !defined( $state->{list}{net} ) ) {
                     die_line( $state, "$val is not a proper table name" );
                 }
-            } elsif ( $val !~ m/^$RE{net}{IPv4}(?:(?:\/\d+)?)$/ ) {
-                die_line( $state, "$val is not a valid ip address" );
+            } else {
+                my (@parts) = split /\//, $val;
+                if ( !$state->{valid_ip}->( $parts[0] ) ) {
+                    die_line( $state, "$val is not a valid ip address" );
+                }
+                if ( exists( $parts[1] ) ) {
+                    if ( $parts[1] !~ m/^\d+$/ ) {
+                        die_line( $state, "$val does not have a valid prefix length" );
+                    }
+                    if ( $parts[1] ne int( $parts[1] ) ) {
+                        die_line( $state, "$val does not have a valid prefix length" );
+                    }
+                    if ( ( $state->{family} eq 'ipv4' ) && ( $parts[1] > 32 ) ) {
+                        die_line( $state, "$val must be 32 or less" );
+                    } elsif ( ( $state->{family} eq 'ipv6' ) && ( $parts[1] > 128 ) ) {
+                        die_line( $state, "$val must be 128 or less" );
+                    }
+                }
             }
         }
         when ('iplist') {
@@ -640,14 +691,16 @@ sub validate_value ( $state, $type, $val ) {
                 # We are okay
             } elsif ( $val eq 'none' ) {
                 # We are okay
-            } elsif ( $val !~ m/^$RE{net}{IPv4}$/ ) {
-                die_line( $state, "$val is not a valid ip address" );
+            } else {
+                validate_value( $state, 'ip', $val );
             }
         }
         when ('natip:opt_port') {
             my ( $ip, $port ) = split /:/, $val;
             validate_value( $state, 'natip', $ip );
-            if ( defined($port) ) { validate_value( $state, 'port', $port ) }
+            if ( defined($port) ) {
+                validate_value( $state, 'port', $port );
+            }
         }
         when ('port') {
             if ( $val =~ m/^<(.*)>$/ ) {
@@ -660,7 +713,7 @@ sub validate_value ( $state, $type, $val ) {
             }
         }
         when ('proto') {
-            if ( $val !~ m/^(icmp|tcp|udp|(\d+))$/i ) {
+            if ( $val !~ m/^(icmp|icmpv6|tcp|udp|(\d+))$/i ) {
                 die_line( $state, "$val is not a valid protocol" );
             }
         }
@@ -676,14 +729,11 @@ sub validate_value ( $state, $type, $val ) {
 
 sub die_line ( $state, @msg ) {
     my $file = $state->{file};
-    confess ( "Input file [ $file ] line "
-          . $state->{line_start} . ": "
-          . join( " ", @msg ) );
-    say STDERR ( "Input file [ $file ] line "
-          . $state->{line_start} . ": "
-          . join( " ", @msg ) );
+    confess( "Input file [ $file ] line " . $state->{line_start} . ": " . join( " ", @msg ) );
+    say STDERR ( "Input file [ $file ] line " . $state->{line_start} . ": " . join( " ", @msg ) );
     exit 1;
 }
 
 1;
 
+## Please see file perltidy.ERR

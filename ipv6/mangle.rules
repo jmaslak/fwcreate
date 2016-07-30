@@ -1,0 +1,10 @@
+#
+# Generic mangle rule
+#
+
+#
+# Make sure we don't send jumbo MTUs to the internet
+#
+
+mangle proto tcp if_out <outside> max_mss 1428
+
