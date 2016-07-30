@@ -6,3 +6,4 @@ hosts.rules
 noise-antispoof.rules
 den1edge1.rules
 fw01.rules
+edge.*.rules
