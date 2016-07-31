@@ -101,10 +101,11 @@ sub output ( $self, $fh = \*STDOUT ) {
     $self->output_print($fh);
 
     my $fam = $self->family;
+    if ($fam eq 'ipv4') { $fam = 'ip'; }
 
     if ($fam ne 'ipv6') {
-        say $fh "/$fam ip firewall nat remove [ find chain=postrouting ]";
-        say $fh "/$fam ip firewall nat remove [ find chain=srcnat ]";
+        say $fh "/$fam firewall nat remove [ find chain=postrouting ]";
+        say $fh "/$fam firewall nat remove [ find chain=srcnat ]";
         say $fh "/$fam firewall nat add chain=srcnat action=jump jump-target=fwbuild_snat";
         say $fh "/$fam firewall nat remove [ find chain=input ]";
         say $fh "/$fam firewall nat remove [ find chain=dstnat ]";
@@ -132,9 +133,32 @@ sub output ( $self, $fh = \*STDOUT ) {
 
 sub output_lists ( $self, $fh ) {
 
+    $self->output_lists_interface($fh);
     $self->output_lists_net($fh);
     $self->output_lists_port($fh);
 
+}
+
+sub output_lists_interface ( $self, $fh ) {
+    foreach my $nm ( sort keys $self->rules->{list}{iface}->%* ) {
+        $self->output_list_interface( $nm, $fh );
+    }
+}
+
+sub output_list_interface ( $self, $nm, $fh ) {
+    my $key = $nm;
+    my $set = "IF_$nm";
+
+    say $fh ":if ( [ /interface list find name=$set ] = \"\" ) do={";
+    say $fh "  /interface list add name=$set";
+    say $fh "}";
+
+    say $fh "/interface list member remove [ find list=$set ]";
+
+    my $list = $self->rules->{list}{iface}->{$key};
+    foreach my $iface ( $list->@* ) {
+        say $fh "/interface list member add list=$set interface=$iface";
+    }
 }
 
 sub output_lists_net ( $self, $fh ) {
@@ -148,6 +172,7 @@ sub output_list_net ( $self, $nm, $fh ) {
     my $set = "NET_$nm";
 
     my $fam = $self->family;
+    if ($fam eq 'ipv4') { $fam = 'ip'; }
 
     say $fh "/$fam firewall address-list remove ", "[ /$fam firewall address-list find list=$set ]";
 
@@ -218,7 +243,7 @@ sub output_rule_gen ( $self, $ctype, $element ) {
                                      # This lets us validate we saw
                                      # everything.
 
-    my ( @in_interfaces, @out_interfaces, @src_ports, @dst_ports );
+    my ( @src_ports, @dst_ports );
     foreach my $sorted ( sort keys %keytype ) {
         my $key = $sorted;
         $key =~ s/^\d\d\d_//;
@@ -237,14 +262,14 @@ sub output_rule_gen ( $self, $ctype, $element ) {
         if ( $key eq 'if_in' ) {
             if ( $element->{$key} =~ m/^<.*>$/ ) {
                 my ($set) = $element->{$key} =~ m/^<(.*)>$/;
-                push @in_interfaces, $self->rules->{list}{iface}{$set}->@*;
+                $rule .= ' in-interface-list=IF_' . $set;
             } else {
                 $rule .= ' in-interface=' . $element->{$key};
             }
         } elsif ( $key eq 'if_out' ) {
             if ( $element->{$key} =~ m/^<.*>$/ ) {
                 my ($set) = $element->{$key} =~ m/^<(.*)>$/;
-                push @out_interfaces, $self->rules->{list}{iface}{$set}->@*;
+                $rule .= ' out-interface-list=IF_' . $set;
             } else {
                 $rule .= ' out-interface=' . $element->{$key};
             }
@@ -365,15 +390,11 @@ sub output_rule_gen ( $self, $ctype, $element ) {
     $rule =~ s/\s+$//g;
     $rule =~ s/\s+/ /g;
 
-    # We know @out_interfaces and @in_interfaces can't both be
-    # simultaniously defined.
-    if ( @out_interfaces || @in_interfaces || @src_ports || @dst_ports ) {
+    if ( @src_ports || @dst_ports ) {
 
         my @rules;
         $rules[0] = $rule;
 
-        @rules = expand_list( \@rules, " in-interface=",  \@in_interfaces );
-        @rules = expand_list( \@rules, " out-interface=", \@out_interfaces );
         @rules = expand_list( \@rules, " src-port=",      \@src_ports );
         @rules = expand_list( \@rules, " dst-port=",      \@dst_ports );
 
@@ -434,6 +455,7 @@ sub output_print ( $self, $fh = \*STDOUT ) {
     }
 
     my $fam = $self->family;
+    if ($fam eq 'ipv4') { $fam = 'ip'; }
 
     # Do Filter tables
     my $filter = "/$fam firewall filter";
@@ -445,7 +467,7 @@ sub output_print ( $self, $fh = \*STDOUT ) {
     say $fh "$filter add $ch protocol=udp $reject reject-with=icmp-port-unreachable";
     say $fh "$filter add $ch protocol=tcp $reject reject-with=tcp-reset";
 
-    if ($fam eq 'ipv4') {
+    if ($fam eq 'ip') {
         say $fh "$filter add $ch $reject reject-with=icmp-protocol-unreachable";
     } else {
         say $fh "$filter add $ch $reject reject-with=icmp-admin-prohibited";
@@ -468,6 +490,7 @@ sub output_chain_print ( $self, $type, $chain, $fh ) {
     if ( !defined($chain) ) { confess 'Assert failed: $chain is undef' }
 
     my $fam = $self->family;
+    if ($fam eq 'ipv4') { $fam = 'ip'; }
 
     # Remove old rules
     say $fh "/$fam firewall $type remove ", "[ /$fam firewall $type find chain=$chain ]";
