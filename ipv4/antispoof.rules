@@ -3,5 +3,7 @@
 #
 
 in if_in <outside> src <nonpublic> action droplog
-in if_in <outside> dst <nonpublic> action droplog
+
+# This blocks NAT destinations
+# in if_in <outside> dst <nonpublic> action droplog
 
