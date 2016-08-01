@@ -2,5 +2,7 @@
 # Default Deny
 #
 
-in action droplog
+# Allow out to unprotected networks
+in dst <protected> action droplog
+in                 action pass
 

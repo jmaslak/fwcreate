@@ -216,8 +216,8 @@ sub cmd_mangle ( $state, @cmd ) {
         dport   => [ 'port',      ['proto'] ],
         dscp    => [ 'dscp',      [] ],
         proto   => [ 'proto:tcp', [] ],
-        src     => [ 'ip',        [] ],
-        dst     => [ 'ip',        [] ],
+        src     => [ 'ipneg',     [] ],
+        dst     => [ 'ipneg',     [] ],
         max_mss => [ 'int16',     ['proto'] ],
     );
 
@@ -271,8 +271,8 @@ sub cmd_nat ( $state, @cmd ) {
         dscp   => [ 'dscp',           [] ],
         dscp   => [ 'dscp',           [] ],
         proto  => [ 'proto',          [] ],
-        src    => [ 'ip',             [] ],
-        dst    => [ 'ip',             [] ],
+        src    => [ 'ipneg',          [] ],
+        dst    => [ 'ipneg',          [] ],
         snat   => [ 'natip:opt_port', ['snat'] ],
         dnat   => [ 'natip:opt_port', ['dnat'] ],
     );
@@ -357,8 +357,8 @@ sub cmd_in_out ( $ctype, $state, @cmd ) {
         dport  => [ 'port',   ['proto'] ],
         dscp   => [ 'dscp',   [] ],
         proto  => [ 'proto',  [] ],
-        src    => [ 'ip',     [] ],
-        dst    => [ 'ip',     [] ],
+        src    => [ 'ipneg',  [] ],
+        dst    => [ 'ipneg',  [] ],
         action => [ 'action', [] ],
     );
 
@@ -426,8 +426,8 @@ sub cmd_mark ( $state, @cmd ) {
         dport    => [ 'port',  ['proto'] ],
         dscp     => [ 'dscp',  [] ],
         proto    => [ 'proto', [] ],
-        src      => [ 'ip',    [] ],
-        dst      => [ 'ip',    [] ],
+        src      => [ 'ipneg', [] ],
+        dst      => [ 'ipneg', [] ],
         set_mark => [ 'mark',  [] ],
     );
 
@@ -515,8 +515,8 @@ sub cmd_dscp ( $state, @cmd ) {
         dport    => [ 'port',  ['proto'] ],
         dscp     => [ 'dscp',  [] ],
         proto    => [ 'proto', [] ],
-        src      => [ 'ip',    [] ],
-        dst      => [ 'ip',    [] ],
+        src      => [ 'ipneg', [] ],
+        dst      => [ 'ipneg', [] ],
         set_dscp => [ 'int16', [] ],
     );
 
@@ -638,6 +638,13 @@ sub validate_value ( $state, $type, $val ) {
                 die_line( $state, "$val is not an integer between 0 and 65535" );
             } elsif ( $val > 65535 ) {
                 die_line( $state, "$val is not an integer between 0 and 65535" );
+            }
+        }
+        when ('ipneg') {
+            if ( $val =~ m/^!(.+)$/ ) {
+                validate_value( $state, 'ip', substr($val, 1) );
+            } else {
+                validate_value( $state, 'ip', $val );
             }
         }
         when ('ip') {

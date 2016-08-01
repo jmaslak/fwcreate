@@ -312,7 +312,7 @@ sub output_rule_gen ( $self, $ctype, $element ) {
 
             my $neg = $ele =~ m/^!/;
             $ele =~ s/^!//;
-            my $opt   = $neg          ? '! '          : '';
+            my $opt   = $neg          ? '!'           : '';
             my $field = $key eq 'src' ? 'src-address' : 'dst-address';
 
             if ( $ele =~ m/^<.*>$/ ) {
