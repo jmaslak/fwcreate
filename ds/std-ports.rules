@@ -5,7 +5,10 @@
 # Ports
 var bacula_sd     9103
 var bgp            179
+var dhcpc           68
+var dhcps           67
 var dns             53
+var ftp             21
 var http            80
 var https          443
 var ike            500
@@ -14,6 +17,8 @@ var ldaps          636
 var ntp            123
 var openvpn       1194
 var puppet        8140
+var snmp           161
+var radius        1812
 var ssh             22
 var synergy      24800
 var syslog         514
