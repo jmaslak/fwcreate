@@ -55,6 +55,14 @@ has mark => (
     init_arg => undef,
 );
 
+has routing_mark => (
+    is       => 'rw',
+    isa      => 'ArrayRef',
+    required => 1,
+    default  => sub { [] },
+    init_arg => undef,
+);
+
 has mss => (
     is       => 'rw',
     isa      => 'ArrayRef',
@@ -91,7 +99,7 @@ sub output ( $self, $fh = \*STDOUT ) {
 
     $self->output_lists($fh);
 
-    for my $ctype ( 'mangle', 'nat', 'in', 'out', 'dscp', 'mark' ) {
+    for my $ctype ( 'mangle', 'nat', 'in', 'out', 'dscp', 'mark', 'routing_mark' ) {
         if ( ( $self->family ne 'ipv6' ) || ( $ctype ne 'nat' ) ) {
             $self->output_rules($ctype);
         }
@@ -129,6 +137,8 @@ sub output ( $self, $fh = \*STDOUT ) {
     say $fh "/$fam firewall mangle add chain=postrouting action=jump ", " jump-target=fwbuild_mss";
     say $fh "/$fam firewall mangle remove ", "[ /$fam firewall mangle find chain=output ]";
     say $fh "/$fam firewall mangle add chain=output action=jump ", "jump-target=fwbuild_mss";
+    say $fh "/$fam firewall mangle remove ", "[ /$fam firewall mangle find chain=prerouting ]";
+    say $fh "/$fam firewall mangle add chain=prerouting action=jump ", "jump-target=fwbuild_routing_mark";
 }
 
 sub output_lists ( $self, $fh ) {
@@ -213,6 +223,8 @@ sub output_rule_gen ( $self, $ctype, $element ) {
         }
     } elsif ( $ctype eq 'mark' ) {
         $chain = $self->mark;
+    } elsif ( $ctype eq 'routing_mark' ) {
+        $chain = $self->routing_mark;
     } elsif ( $ctype eq 'dscp' ) {
         $chain = $self->dscp;
     } else {
@@ -223,20 +235,21 @@ sub output_rule_gen ( $self, $ctype, $element ) {
 
     # Keys are sort-val (4 chars) followed by the field name
     my %keytype = (
-        '000_if_in'    => 'iface',
-        '001_if_out'   => 'iface',
-        '002_proto'    => 'proto',
-        '003_src'      => 'ip',
-        '004_sport'    => 'port',
-        '005_dst'      => 'ip',
-        '006_dport'    => 'port',
-        '007_dnat'     => 'natip:opt_port',
-        '008_snat'     => 'natip:opt_port',
-        '009_max_mss'  => 'int16',
-        '010_dscp'     => 'dscp',
-        '011_action'   => '',
-        '012_set_dscp' => '',
-        '013_set_mark' => '',
+        '000_if_in'            => 'iface',
+        '001_if_out'           => 'iface',
+        '002_proto'            => 'proto',
+        '003_src'              => 'ip',
+        '004_sport'            => 'port',
+        '005_dst'              => 'ip',
+        '006_dport'            => 'port',
+        '007_dnat'             => 'natip:opt_port',
+        '008_snat'             => 'natip:opt_port',
+        '009_max_mss'          => 'int16',
+        '010_dscp'             => 'dscp',
+        '011_action'           => '',
+        '012_set_dscp'         => '',
+        '013_set_mark'         => '',
+        '014_set_routing_mark' => '',
     );
 
     my (%working) = $element->%*;    # We remove keys from here when we process them
@@ -307,6 +320,8 @@ sub output_rule_gen ( $self, $ctype, $element ) {
             $rule .= ' action=change-dscp passthrough=no new-dscp=' . $element->{$key};
         } elsif ( $key eq 'set_mark' ) {
             $rule .= ' action=mark-packet passthrough=no new-packet-mark=' . $element->{$key};
+        } elsif ( $key eq 'set_routing_mark' ) {
+            $rule .= ' action=mark-routing passthrough=no new-routing-mark=' . $element->{$key};
         } elsif ( $keytype{$sorted} eq 'ip' ) {
             my $ele = $element->{$key};
 
@@ -424,6 +439,8 @@ sub get_pending_rules ( $self, $chainname ) {
         $pending = $self->dscp;
     } elsif ( $chain eq 'mark' ) {
         $pending = $self->mark;
+    } elsif ( $chain eq 'routing_mark' ) {
+        $pending = $self->routing_mark;
     } else {
         die("Unknown rule type: $chain");
     }
@@ -433,13 +450,14 @@ sub get_pending_rules ( $self, $chainname ) {
 
 sub output_print ( $self, $fh = \*STDOUT ) {
     my %tabletype = (
-        fwbuild_in   => 'filter',
-        fwbuild_out  => 'filter',
-        fwbuild_mss  => 'mangle',
-        fwbuild_snat => 'nat',
-        fwbuild_dnat => 'nat',
-        fwbuild_dscp => 'mangle',
-        fwbuild_mark => 'mangle',
+        fwbuild_in           => 'filter',
+        fwbuild_out          => 'filter',
+        fwbuild_mss          => 'mangle',
+        fwbuild_snat         => 'nat',
+        fwbuild_dnat         => 'nat',
+        fwbuild_dscp         => 'mangle',
+        fwbuild_mark         => 'mangle',
+        fwbuild_routing_mark => 'mangle',
     );
 
     # Do Mangle tables
