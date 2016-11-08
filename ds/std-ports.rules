@@ -12,7 +12,10 @@ var ftp             21
 var http            80
 var https          443
 var ike            500
+var l2tp          1701
+var l2tp_ike      4500
 var krb             88
+var ldap           389
 var ldaps          636
 var ntp            123
 var openvpn       1194
