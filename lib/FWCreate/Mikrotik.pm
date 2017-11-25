@@ -1,13 +1,13 @@
 #!/usr/bin/perl
 
 #
-# Copyright (C) 2016 Joel C. Maslak
+# Copyright (C) 2016 Joelle Maslak
 # All Rights Reserved - See License
 #
 
 package FWCreate::Mikrotik v0.01.00;
 
-use JCM::Boilerplate 'class';
+use JTM::Boilerplate 'class';
 
 my $MAXPORTS = 15;    # Max ports in a Mikrotik rule port list
 

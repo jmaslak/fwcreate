@@ -1,13 +1,13 @@
 #!/usr/bin/perl
 
 #
-# Copyright (C) 2016 Joel C. Maslak
+# Copyright (C) 2016 Joelle Maslak
 # All Rights Reserved - See License
 #
 
 package FWCreate::IPTables v0.01.00;
 
-use JCM::Boilerplate 'class';
+use JTM::Boilerplate 'class';
 
 has rules => (
     is       => 'rw',
