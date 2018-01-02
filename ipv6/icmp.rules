@@ -2,5 +2,13 @@
 # ICMP - generally a good thing to allow
 #
 
+#
+# Block the IPv6 translation prefixes from outside
+#
+in proto icmpv6 src !<trusted> dst <nat64> action droplog
+
+#
+# Allow all other ICMP
+#
 in proto icmpv6 action pass
 
