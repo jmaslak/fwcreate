@@ -23,7 +23,6 @@ var puppet        8140
 var snmp           161
 var radius        1812
 var ssh             22
-var synergy      24800
 var syslog         514
 var time            37
 

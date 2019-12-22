@@ -2,6 +2,5 @@
 # Generic antispoofing rules
 #
 
-# out if_out <outside> src <nonpublic> action droplog
 out if_out <outside> dst <nonpublic> action droplog
 
