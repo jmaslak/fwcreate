@@ -31,10 +31,6 @@ list port bfd
     3784
     3785
 
-list port jabber
-    5222
-    5223
-
 # Protocols
 var gre             47
 var esp             50
